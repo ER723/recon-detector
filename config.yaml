@@ -1,0 +1,23 @@
+# recon-detector configuration
+# All fields are optional - anything you omit falls back to the built-in default.
+# Lower thresholds / shorter windows = more sensitive, more false positives.
+# Raise thresholds if you're getting noise from legit scanners (backup jobs,
+# monitoring tools, etc).
+
+port_scan:
+  window_seconds: 10
+  distinct_port_threshold: 15
+
+ping_sweep:
+  window_seconds: 10
+  distinct_host_threshold: 10
+
+arp_scan:
+  window_seconds: 10
+  distinct_host_threshold: 10
+
+# How long (seconds) to wait before re-alerting on the same source + alert type,
+# so one scan doesn't spam thousands of log lines.
+alert_cooldown_seconds: 60
+
+log_file: recon_alerts.log
