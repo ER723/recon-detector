@@ -20,7 +20,10 @@ def make_detector(overrides=None):
     cfg = {k: (dict(v) if isinstance(v, dict) else v) for k, v in DEFAULTS.items()}
     if overrides:
         for section, values in overrides.items():
-            cfg[section].update(values)
+            if isinstance(values, dict) and isinstance(cfg.get(section), dict):
+                cfg[section].update(values)
+            else:
+                cfg[section] = values
     logger = logging.getLogger("test")
     logger.handlers = [logging.NullHandler()]
     return Detector(cfg, logger)
