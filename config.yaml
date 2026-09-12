@@ -4,32 +4,47 @@
 # Raise thresholds if you're getting noise from legit scanners (backup jobs,
 # monitoring tools, etc).
 
-port_scan:
+# VERTICAL scans: one source hitting many ports on ONE destination host.
+# Classic single-target port enumeration (e.g. `nmap -p1-1000 <one-ip>`).
+tcp_vertical_scan:
   window_seconds: 10             # fast-scan window (catches nmap -T3/-T4/-T5 style scans)
-  distinct_port_threshold: 15
+  distinct_threshold: 15
   long_window_seconds: 300       # slow-scan window: 5 minutes
   long_window_threshold: 30      # catches nmap -T0/-T1 style scans that spread probes out
                                   # to stay under the fast-window threshold
 
-udp_scan:
+udp_vertical_scan:
   window_seconds: 10
-  distinct_port_threshold: 15
+  distinct_threshold: 15
   long_window_seconds: 300
   long_window_threshold: 30
 
+# HORIZONTAL scans: one source touching many DISTINCT destination hosts,
+# over TCP or UDP. Classic network sweep (e.g. `nmap -p80 10.0.0.0/24`).
+horizontal_scan:
+  window_seconds: 10
+  distinct_threshold: 10
+  long_window_seconds: 300
+  long_window_threshold: 20
+
+# ICMP ping sweep and ARP scan are inherently horizontal (one source probing
+# many hosts), so they only need a single window each.
 ping_sweep:
   window_seconds: 10
-  distinct_host_threshold: 10
+  distinct_threshold: 10
 
 arp_scan:
   window_seconds: 10
-  distinct_host_threshold: 10
+  distinct_threshold: 10
 
 # How long (seconds) to wait before re-alerting on the same source + alert type,
 # so one scan doesn't spam thousands of log lines.
 alert_cooldown_seconds: 60
 
 log_file: recon_alerts.log
+
+# Max number of sample ports/hosts included in each alert's JSON detail.
+sample_size: 20
 
 # Production-readiness settings -------------------------------------------
 

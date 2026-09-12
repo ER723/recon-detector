@@ -5,16 +5,25 @@ recon-detector: a lightweight, dependency-light network reconnaissance detector.
 Detects, in real time, the noisy pre-attack behaviors an attacker generates
 while mapping a network:
 
-  - TCP port scans      (many distinct ports on one host from one source)
-  - UDP port scans      (same, over UDP)
-  - ICMP ping sweeps    (many distinct hosts pinged by one source, fast)
-  - ARP scans           (many ARP "who-has" requests from one source, fast)
+  - VERTICAL scans   (one source hitting many ports on ONE destination host)
+      tracked separately for TCP and UDP
+  - HORIZONTAL scans (one source touching many DISTINCT destination hosts,
+      over TCP or UDP)
+  - ICMP ping sweeps (one source pinging many distinct hosts - a horizontal
+      pattern specific to ICMP)
+  - ARP scans        (one source ARP-probing many distinct hosts on the LAN)
 
-Both TCP and UDP scan detection use TWO sliding windows per source:
+Vertical and horizontal TCP/UDP detection each use TWO sliding windows per
+tracked key:
   - a short window, tuned to catch fast/default-speed scans (e.g. nmap -T4)
   - a long window with a higher count but looser rate, tuned to catch
     slow/stealthy scans (e.g. nmap -T0/-T1) that spread probes out to
     stay under a short-window threshold
+
+Alerts are written as single-line JSON, one object per line, with a
+consistent schema (source, destination, protocol, ports/hosts, count,
+timestamp, severity) so they can be parsed directly by OSSEC/Wazuh's
+JSON log decoder or any other log pipeline, without custom regex.
 
 Design goals (deliberately kept simple so it runs happily on a VM with
 8GB RAM and a single CPU core, with no external services and no cost):
@@ -24,8 +33,6 @@ Design goals (deliberately kept simple so it runs happily on a VM with
     periodically prunes idle source trackers so memory stays bounded on a
     box that runs for weeks, and emits a heartbeat log line so "no alerts"
     can be told apart from "the detector silently died."
-  - Alerts are appended to a plain-text log (and optionally printed live),
-    so they can be tailed by OSSEC / Wazuh as a custom log source.
 
 Usage:
     sudo python3 recon_detector.py --iface eth0
@@ -35,6 +42,7 @@ Run `python3 recon_detector.py -h` for all options.
 """
 
 import argparse
+import json
 import sys
 import time
 import logging
@@ -62,30 +70,50 @@ except ImportError:
 # --------------------------------------------------------------------------
 
 DEFAULTS = {
-    "port_scan": {
-        "window_seconds": 10,            # fast-scan window
-        "distinct_port_threshold": 15,   # unique dst ports from one src -> alert
-        "long_window_seconds": 300,      # slow-scan window (5 min)
-        "long_window_threshold": 30,     # unique dst ports over the long window -> alert
-    },
-    "udp_scan": {
+    "tcp_vertical_scan": {          # one source -> many ports on ONE dest, TCP
         "window_seconds": 10,
-        "distinct_port_threshold": 15,
+        "distinct_threshold": 15,
         "long_window_seconds": 300,
         "long_window_threshold": 30,
     },
-    "ping_sweep": {
+    "udp_vertical_scan": {          # one source -> many ports on ONE dest, UDP
         "window_seconds": 10,
-        "distinct_host_threshold": 10,  # unique dst IPs pinged by one src -> alert
+        "distinct_threshold": 15,
+        "long_window_seconds": 300,
+        "long_window_threshold": 30,
     },
-    "arp_scan": {
+    "horizontal_scan": {            # one source -> many DISTINCT dest hosts (TCP/UDP)
         "window_seconds": 10,
-        "distinct_host_threshold": 10,  # unique ARP targets from one src -> alert
+        "distinct_threshold": 10,
+        "long_window_seconds": 300,
+        "long_window_threshold": 20,
+    },
+    "ping_sweep": {                 # one source -> many distinct hosts, ICMP
+        "window_seconds": 10,
+        "distinct_threshold": 10,
+    },
+    "arp_scan": {                   # one source -> many distinct hosts, ARP
+        "window_seconds": 10,
+        "distinct_threshold": 10,
     },
     "alert_cooldown_seconds": 60,      # don't re-alert on the same src+type for this long
     "log_file": "recon_alerts.log",
-    "stale_after_seconds": 600,        # drop a source's tracker after this long idle
+    "stale_after_seconds": 600,        # drop a tracker after this long idle
     "heartbeat_interval_seconds": 300, # log a heartbeat + run cleanup this often
+    "sample_size": 20,                 # max sample items included in an alert's detail
+}
+
+# Rough severity rating per alert type, included in every JSON alert so a
+# SIEM (or a human) can triage without needing to know the alert-type names.
+SEVERITY = {
+    "TCP_VERTICAL_SCAN": "high",
+    "UDP_VERTICAL_SCAN": "high",
+    "SLOW_TCP_VERTICAL_SCAN": "medium",
+    "SLOW_UDP_VERTICAL_SCAN": "medium",
+    "HORIZONTAL_SCAN": "high",
+    "SLOW_HORIZONTAL_SCAN": "medium",
+    "PING_SWEEP": "medium",
+    "ARP_SCAN": "low",
 }
 
 
@@ -105,7 +133,7 @@ def load_config(path):
 
 
 # --------------------------------------------------------------------------
-# Sliding-window tracker: for a given source, remembers (timestamp, item)
+# Sliding-window tracker: for a given key, remembers (timestamp, item)
 # pairs and reports how many *distinct* items occurred in the last N seconds.
 # A single tracker can answer both a short-window and a long-window query,
 # as long as it's trimmed to the longer of the two on write.
@@ -126,6 +154,10 @@ class SourceActivity:
     def distinct_count(self, now, window):
         return len({item for ts, item in self.events if now - ts <= window})
 
+    def distinct_items(self, now, window, limit):
+        items = sorted({item for ts, item in self.events if now - ts <= window}, key=str)
+        return items[:limit]
+
     def last_seen(self):
         return self.events[-1][0] if self.events else 0.0
 
@@ -137,10 +169,16 @@ class Detector:
     def __init__(self, cfg, logger):
         self.cfg = cfg
         self.log = logger
-        self.port_activity = defaultdict(SourceActivity)   # src_ip -> (dst,port) touched (TCP)
-        self.udp_activity = defaultdict(SourceActivity)    # src_ip -> (dst,port) touched (UDP)
-        self.icmp_activity = defaultdict(SourceActivity)   # src_ip -> hosts pinged
-        self.arp_activity = defaultdict(SourceActivity)    # src_ip -> hosts arp'd
+
+        # Vertical: keyed by (src, dst) -> distinct ports touched on that dst
+        self.tcp_vertical = defaultdict(SourceActivity)
+        self.udp_vertical = defaultdict(SourceActivity)
+        # Horizontal: keyed by src -> distinct destination hosts touched (TCP/UDP)
+        self.horizontal_activity = defaultdict(SourceActivity)
+        # ICMP / ARP: keyed by src -> distinct hosts pinged / arp'd
+        self.icmp_activity = defaultdict(SourceActivity)
+        self.arp_activity = defaultdict(SourceActivity)
+
         self.last_alert = {}  # (src, alert_type) -> timestamp
 
     # -- alerting -----------------------------------------------------
@@ -154,30 +192,49 @@ class Detector:
         return False
 
     def _alert(self, alert_type, src, detail):
-        msg = f"[ALERT] {alert_type} from {src} - {detail}"
-        self.log.warning(msg)
+        """detail is a dict of alert-specific fields (destination, protocol,
+        ports/hosts, count, ...). Emits one JSON object per line."""
+        payload = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time())),
+            "alert_type": alert_type,
+            "source_ip": src,
+            "severity": SEVERITY.get(alert_type, "medium"),
+        }
+        payload.update(detail)
+        self.log.warning(json.dumps(payload))
 
-    # -- scan-family helper (shared by TCP and UDP port scans) --------
+    # -- generic sliding-window scan check (shared by all TCP/UDP checks) ---
 
-    def _check_port_scan(self, activity_dict, cfg_key, alert_prefix, src, dst, dport, now, extra=""):
-        cfg = self.cfg[cfg_key]
+    def _check_scan(self, activity_dict, track_key, item, cfg, src,
+                     alert_type_fast, alert_type_slow, now, extra_detail):
         max_window = max(cfg["window_seconds"], cfg["long_window_seconds"])
-        act = activity_dict[src]
-        act.add((dst, dport), now, max_window)
+        act = activity_dict[track_key]
+        act.add(item, now, max_window)
+        limit = self.cfg["sample_size"]
 
         fast_count = act.distinct_count(now, cfg["window_seconds"])
-        if fast_count >= cfg["distinct_port_threshold"] and self._should_alert(src, f"{alert_prefix}_SCAN", now):
-            self._alert(f"{alert_prefix}_SCAN", src,
-                        f"{fast_count} distinct dst ports in {cfg['window_seconds']}s{extra}")
+        if fast_count >= cfg["distinct_threshold"] and self._should_alert(src, alert_type_fast, now):
+            detail = dict(extra_detail)
+            detail.update({
+                "count": fast_count,
+                "window_seconds": cfg["window_seconds"],
+                "sample": act.distinct_items(now, cfg["window_seconds"], limit),
+            })
+            self._alert(alert_type_fast, src, detail)
             return
 
         # Only check the slow-scan window if the fast one didn't just fire,
         # so a fast scan isn't double-reported as slow too.
         long_count = act.distinct_count(now, cfg["long_window_seconds"])
-        if long_count >= cfg["long_window_threshold"] and self._should_alert(src, f"SLOW_{alert_prefix}_SCAN", now):
-            self._alert(f"SLOW_{alert_prefix}_SCAN", src,
-                        f"{long_count} distinct dst ports over {cfg['long_window_seconds']}s "
-                        f"(stealthy/slow-timed scan pattern){extra}")
+        if long_count >= cfg["long_window_threshold"] and self._should_alert(src, alert_type_slow, now):
+            detail = dict(extra_detail)
+            detail.update({
+                "count": long_count,
+                "window_seconds": cfg["long_window_seconds"],
+                "sample": act.distinct_items(now, cfg["long_window_seconds"], limit),
+                "note": "stealthy/slow-timed scan pattern",
+            })
+            self._alert(alert_type_slow, src, detail)
 
     # -- packet handling ------------------------------------------------
 
@@ -191,9 +248,13 @@ class Detector:
             act = self.arp_activity[src]
             act.add(target, now, cfg["window_seconds"])
             count = act.distinct_count(now, cfg["window_seconds"])
-            if count >= cfg["distinct_host_threshold"] and self._should_alert(src, "ARP_SCAN", now):
-                self._alert("ARP_SCAN", src,
-                             f"{count} distinct hosts probed in {cfg['window_seconds']}s")
+            if count >= cfg["distinct_threshold"] and self._should_alert(src, "ARP_SCAN", now):
+                self._alert("ARP_SCAN", src, {
+                    "protocol": "ARP",
+                    "count": count,
+                    "window_seconds": cfg["window_seconds"],
+                    "sample_hosts": act.distinct_items(now, cfg["window_seconds"], self.cfg["sample_size"]),
+                })
             return
 
         if not pkt.haslayer(IP):
@@ -202,22 +263,42 @@ class Detector:
         dst = pkt[IP].dst
 
         if pkt.haslayer(TCP):
-            flags = pkt[TCP].flags
-            self._check_port_scan(self.port_activity, "port_scan", "TCP_PORT",
-                                   src, dst, pkt[TCP].dport, now, extra=f" (last flags={flags})")
+            flags = pkt.sprintf("%TCP.flags%")
+            self._check_scan(
+                self.tcp_vertical, (src, dst), pkt[TCP].dport, self.cfg["tcp_vertical_scan"], src,
+                "TCP_VERTICAL_SCAN", "SLOW_TCP_VERTICAL_SCAN", now,
+                {"destination_ip": dst, "protocol": "TCP", "last_flags": flags},
+            )
+            self._check_scan(
+                self.horizontal_activity, src, dst, self.cfg["horizontal_scan"], src,
+                "HORIZONTAL_SCAN", "SLOW_HORIZONTAL_SCAN", now,
+                {"protocol": "TCP"},
+            )
 
         elif pkt.haslayer(UDP):
-            self._check_port_scan(self.udp_activity, "udp_scan", "UDP_PORT",
-                                   src, dst, pkt[UDP].dport, now)
+            self._check_scan(
+                self.udp_vertical, (src, dst), pkt[UDP].dport, self.cfg["udp_vertical_scan"], src,
+                "UDP_VERTICAL_SCAN", "SLOW_UDP_VERTICAL_SCAN", now,
+                {"destination_ip": dst, "protocol": "UDP"},
+            )
+            self._check_scan(
+                self.horizontal_activity, src, dst, self.cfg["horizontal_scan"], src,
+                "HORIZONTAL_SCAN", "SLOW_HORIZONTAL_SCAN", now,
+                {"protocol": "UDP"},
+            )
 
         elif pkt.haslayer(ICMP) and pkt[ICMP].type == 8:  # echo-request
             cfg = self.cfg["ping_sweep"]
             act = self.icmp_activity[src]
             act.add(dst, now, cfg["window_seconds"])
             count = act.distinct_count(now, cfg["window_seconds"])
-            if count >= cfg["distinct_host_threshold"] and self._should_alert(src, "PING_SWEEP", now):
-                self._alert("PING_SWEEP", src,
-                             f"{count} distinct hosts pinged in {cfg['window_seconds']}s")
+            if count >= cfg["distinct_threshold"] and self._should_alert(src, "PING_SWEEP", now):
+                self._alert("PING_SWEEP", src, {
+                    "protocol": "ICMP",
+                    "count": count,
+                    "window_seconds": cfg["window_seconds"],
+                    "sample_hosts": act.distinct_items(now, cfg["window_seconds"], self.cfg["sample_size"]),
+                })
 
     # -- production-readiness maintenance -------------------------------
 
@@ -227,7 +308,8 @@ class Detector:
         now = time.time()
         stale_after = self.cfg["stale_after_seconds"]
         pruned = 0
-        for d in (self.port_activity, self.udp_activity, self.icmp_activity, self.arp_activity):
+        for d in (self.tcp_vertical, self.udp_vertical, self.horizontal_activity,
+                  self.icmp_activity, self.arp_activity):
             stale_keys = [k for k, v in d.items() if v.is_stale(now, stale_after)]
             for k in stale_keys:
                 del d[k]
@@ -241,22 +323,25 @@ class Detector:
             del self.last_alert[k]
 
         if pruned or stale_alerts:
-            self.log.info(f"[cleanup] pruned {pruned} idle source tracker(s), "
+            self.log.info(f"[cleanup] pruned {pruned} idle tracker(s), "
                            f"{len(stale_alerts)} old cooldown entr(y/ies)")
 
     def heartbeat(self):
         """Prove liveness even when nothing has alerted, so a monitoring
         system (or a human) can tell 'quiet network' apart from 'crashed
         process' just by tailing the log."""
-        active = (len(self.port_activity) + len(self.udp_activity)
+        active = (len(self.tcp_vertical) + len(self.udp_vertical) + len(self.horizontal_activity)
                   + len(self.icmp_activity) + len(self.arp_activity))
-        self.log.info(f"[HEARTBEAT] recon-detector alive, tracking {active} active source entr(y/ies)")
+        self.log.info(f"[HEARTBEAT] recon-detector alive, tracking {active} active tracker entr(y/ies)")
 
 
 def build_logger(log_file, quiet):
     logger = logging.getLogger("recon-detector")
     logger.setLevel(logging.INFO)
-    fmt = logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    # Alert lines are JSON on their own; keep the file free of a prefix so
+    # each line is parseable as-is by a JSON log decoder. Non-alert lines
+    # (startup banner, heartbeat, cleanup) are plain text with a timestamp.
+    fmt = logging.Formatter("%(message)s")
 
     fh = logging.FileHandler(log_file)
     fh.setFormatter(fmt)
@@ -288,13 +373,15 @@ def main():
     detector = Detector(cfg, logger)
 
     logger.info(
-        f"recon-detector starting on iface={args.iface or 'default'} "
-        f"(tcp_scan>={cfg['port_scan']['distinct_port_threshold']}/{cfg['port_scan']['window_seconds']}s "
-        f"or >={cfg['port_scan']['long_window_threshold']}/{cfg['port_scan']['long_window_seconds']}s, "
-        f"udp_scan>={cfg['udp_scan']['distinct_port_threshold']}/{cfg['udp_scan']['window_seconds']}s "
-        f"or >={cfg['udp_scan']['long_window_threshold']}/{cfg['udp_scan']['long_window_seconds']}s, "
-        f"ping_sweep>={cfg['ping_sweep']['distinct_host_threshold']}/{cfg['ping_sweep']['window_seconds']}s, "
-        f"arp_scan>={cfg['arp_scan']['distinct_host_threshold']}/{cfg['arp_scan']['window_seconds']}s, "
+        f"{time.strftime('%Y-%m-%d %H:%M:%S')} recon-detector starting on iface={args.iface or 'default'} "
+        f"(tcp_vertical>={cfg['tcp_vertical_scan']['distinct_threshold']}/{cfg['tcp_vertical_scan']['window_seconds']}s "
+        f"or >={cfg['tcp_vertical_scan']['long_window_threshold']}/{cfg['tcp_vertical_scan']['long_window_seconds']}s, "
+        f"udp_vertical>={cfg['udp_vertical_scan']['distinct_threshold']}/{cfg['udp_vertical_scan']['window_seconds']}s "
+        f"or >={cfg['udp_vertical_scan']['long_window_threshold']}/{cfg['udp_vertical_scan']['long_window_seconds']}s, "
+        f"horizontal>={cfg['horizontal_scan']['distinct_threshold']}/{cfg['horizontal_scan']['window_seconds']}s "
+        f"or >={cfg['horizontal_scan']['long_window_threshold']}/{cfg['horizontal_scan']['long_window_seconds']}s, "
+        f"ping_sweep>={cfg['ping_sweep']['distinct_threshold']}/{cfg['ping_sweep']['window_seconds']}s, "
+        f"arp_scan>={cfg['arp_scan']['distinct_threshold']}/{cfg['arp_scan']['window_seconds']}s, "
         f"heartbeat/cleanup every {cfg['heartbeat_interval_seconds']}s, "
         f"stale trackers dropped after {cfg['stale_after_seconds']}s idle)"
     )
@@ -313,7 +400,7 @@ def main():
     except PermissionError:
         sys.exit("Permission denied: run with sudo (raw sockets require root).")
     except KeyboardInterrupt:
-        logger.info("recon-detector stopped.")
+        logger.info(f"{time.strftime('%Y-%m-%d %H:%M:%S')} recon-detector stopped.")
 
 
 if __name__ == "__main__":
