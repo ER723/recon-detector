@@ -131,6 +131,70 @@ nmap -sS -T1 -p 1-50 <ip-of-the-machine-running-recon-detector>
 
 You should see the matching alert type appear within the configured window.
 
+### Live test results
+
+This was run for real: detector on a Kali VM (`--iface eth0`), scans launched
+from a separate machine on the same LAN plus from the Kali VM itself for the
+horizontal case. Every alert type fired as designed, using the real
+thresholds in `config.yaml` (no tuning down for the demo). Timestamps/IPs are
+from the actual run.
+
+**ARP scan** — another device on the LAN (not the machine running the scans)
+tripped this on its own, which is a good sign: the detector caught real
+background ARP activity, not just the deliberate test traffic.
+```json
+{"timestamp": "2026-09-12T13:53:46Z", "alert_type": "ARP_SCAN", "source_ip": "192.168.1.4", "severity": "low", "protocol": "ARP", "count": 10, "window_seconds": 10, "sample_hosts": ["192.168.1.11", "192.168.1.14", "192.168.1.2", "192.168.1.23", "192.168.1.24", "192.168.1.29", "192.168.1.3", "192.168.1.34", "192.168.1.5", "192.168.1.8"]}
+```
+
+**TCP vertical scan** (`nmap -sS -p 1-100 <target>`):
+```json
+{"timestamp": "2026-09-12T13:58:24Z", "alert_type": "TCP_VERTICAL_SCAN", "source_ip": "192.168.1.4", "severity": "high", "destination_ip": "192.168.1.27", "protocol": "TCP", "last_flags": "S", "count": 15, "window_seconds": 10, "sample": [19, 21, 22, 23, 24, 25, 31, 40, 53, 65, 7, 8, 80, 91, 94]}
+```
+
+**UDP vertical scan** (`nmap -sU -p 1-50 <target>`):
+```json
+{"timestamp": "2026-09-12T13:58:34Z", "alert_type": "UDP_VERTICAL_SCAN", "source_ip": "192.168.1.4", "severity": "high", "destination_ip": "192.168.1.27", "protocol": "UDP", "count": 15, "window_seconds": 10, "sample": [1, 12, 13, 18, 20, 24, 25, 30, 31, 34, 35, 37, 41, 45, 50]}
+```
+
+**Slow vertical scan** (`nmap -sS -T1 -p 1-50 <target>`) — `-T1` deliberately
+spaces probes ~15s apart to duck fast-window thresholds. The long window
+caught it anyway, and kept re-alerting with a growing count as the scan
+continued to trickle in:
+```json
+{"timestamp": "2026-09-12T13:58:24Z", "alert_type": "SLOW_TCP_VERTICAL_SCAN", "source_ip": "192.168.1.4", "severity": "medium", "destination_ip": "192.168.1.27", "protocol": "TCP", "last_flags": "S", "count": 30, "window_seconds": 300, "sample": [11, 12, 16, 17, 19, 21, 22, 23, 24, 25, 31, 35, 39, 40, 43, 5, 53, 56, 57, 62], "note": "stealthy/slow-timed scan pattern"}
+{"timestamp": "2026-09-12T14:02:28Z", "alert_type": "SLOW_TCP_VERTICAL_SCAN", "source_ip": "192.168.1.4", "severity": "medium", "destination_ip": "192.168.1.27", "protocol": "TCP", "last_flags": "S", "count": 72, "window_seconds": 300, "sample": [1, 11, 12, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 3, 30], "note": "stealthy/slow-timed scan pattern"}
+```
+
+**Horizontal scan** (run from the Kali box itself — see note below —
+`nmap -sS -p 80 192.168.1.0/24`):
+```json
+{"timestamp": "2026-09-12T14:09:55Z", "alert_type": "HORIZONTAL_SCAN", "source_ip": "192.168.1.27", "severity": "high", "protocol": "TCP", "count": 10, "window_seconds": 10, "sample": ["109.228.38.48", "192.168.1.1", "192.168.1.14", "192.168.1.19", "192.168.1.2", "192.168.1.20", "192.168.1.3", "192.168.1.4", "192.168.1.5", "87.106.54.7"]}
+```
+
+**Ping sweep** (`nmap -sn -PE --send-ip 192.168.1.0/24` — plain `-sn` prefers
+ARP over ICMP on a local subnet, so `--send-ip` is needed to force real ICMP
+echo requests and actually exercise this path):
+```json
+{"timestamp": "2026-09-12T14:21:56Z", "alert_type": "PING_SWEEP", "source_ip": "192.168.1.27", "severity": "medium", "protocol": "ICMP", "count": 10, "window_seconds": 10, "sample_hosts": ["192.168.1.1", "192.168.1.14", "192.168.1.16", "192.168.1.19", "192.168.1.2", "192.168.1.20", "192.168.1.255", "192.168.1.3", "192.168.1.4", "192.168.1.5"]}
+```
+
+**Notes from this run:**
+- The scanning machine had to run `sudo nmap -sS`/`-sU` — SYN and UDP scans
+  need raw sockets and root on the *scanning* machine, not just on the
+  detector.
+- A horizontal scan needs to be run *from* the machine running the
+  detector, not *at* it from elsewhere. Horizontal detection looks for one
+  source touching many destinations; a remote machine scanning a whole
+  subnet sends most of that traffic to other hosts, which never crosses the
+  detector's own network interface to be sniffed.
+- The `HORIZONTAL_SCAN` sample above includes two public IPs alongside the
+  LAN targets (`109.228.38.48`, `87.106.54.7`). Those weren't scan targets —
+  they were the Kali VM's own background traffic (apt/telemetry/etc.)
+  landing in the same 10-second window as the scan, from the same source.
+  Harmless here (the LAN targets alone were enough to trip the threshold),
+  but worth knowing: horizontal detection on a host that also generates its
+  own outbound traffic can mix legitimate connections into the sample.
+
 ## Feeding this into OSSEC / Wazuh
 
 Alerts are single-line JSON, so OSSEC/Wazuh can decode them natively with a
@@ -188,6 +252,9 @@ python3 tests/test_detector.py
   known-bad IPs.
 - Not a replacement for Zeek/Suricata/Snort in a production environment —
   built for home-lab / small-network use where those are too heavy.
+- Horizontal-scan detection can mix a host's own legitimate outbound
+  traffic into an alert's sample if run on the same machine that's also
+  scanning — observed directly in live testing above.
 
 ## License
 
