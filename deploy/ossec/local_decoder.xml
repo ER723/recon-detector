@@ -1,0 +1,22 @@
+<!--
+  recon-detector OSSEC decoder.
+
+  Confirmed working on OSSEC HIDS 4.3.0 (local install) against real
+  recon-detector JSON alerts. Install as:
+    sudo cp local_decoder.xml /var/ossec/etc/local_decoder.xml
+
+  This decoder only recognizes recon-detector's alert lines (via the
+  prematch below) so OSSEC's rule engine can classify them - it does not
+  extract individual fields like source_ip into a named OSSEC field.
+  Several parent/child decoder variants using <regex>/<order> to pull out
+  "srcip" were tried and tested live via `ossec-logtest`, and none
+  successfully extracted the field on this OSSEC build (the cause wasn't
+  pinned down - worth revisiting with someone who can iterate against a
+  live OSSEC install directly). This is a cosmetic gap only: the full
+  original JSON line, including the real source_ip, is always preserved
+  verbatim in the resulting alert in alerts.log - it's just not pulled
+  into the one-line rule description.
+-->
+<decoder name="recon-detector">
+  <prematch>^\{"timestamp"</prematch>
+</decoder>

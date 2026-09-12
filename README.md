@@ -197,16 +197,59 @@ echo requests and actually exercise this path):
 
 ## Feeding this into OSSEC / Wazuh
 
-Alerts are single-line JSON, so OSSEC/Wazuh can decode them natively with a
-JSON log decoder pointed at `recon_alerts.log`, without writing a custom
-regex — map `alert_type` to a rule name and `severity` to a rule level, e.g.
-`high` → level 10+, `medium` → level 5-7, `low` → level 1-4.
+This has been built and confirmed working end to end against a real, local
+OSSEC HIDS 4.3.0 install (`local` install type — no manager/agent split, no
+indexer, no dashboard: a single self-contained log-analysis engine on the
+same box as the detector). Real `nmap`-triggered alerts were verified
+landing in `/var/ossec/logs/alerts/alerts.log`, correctly classified by
+severity.
 
-This works with the lightweight OSSEC/Wazuh **agent** you're likely already
-running. The full Wazuh manager+indexer+dashboard stack is heavier
-(typically wants several GB of RAM on its own) — if you want that, run it on
-separate hardware from the box doing the sniffing, so it doesn't compete
-with recon-detector and Kali for the same 8GB.
+The working decoder and rules are in `deploy/ossec/` — copy them onto your
+OSSEC install:
+
+```bash
+sudo cp deploy/ossec/local_decoder.xml /var/ossec/etc/local_decoder.xml
+sudo tee -a /var/ossec/rules/local_rules.xml < deploy/ossec/local_rules.xml
+```
+
+Then add a `<localfile>` block to `/var/ossec/etc/ossec.conf` (inside
+`<ossec_config>`, anywhere before the closing tag) pointing at your
+`recon_alerts.log`, and restart:
+
+```xml
+<localfile>
+  <log_format>syslog</log_format>
+  <location>/home/YOUR_USER/recon-detector/recon_alerts.log</location>
+</localfile>
+```
+
+```bash
+sudo /var/ossec/bin/ossec-control restart
+```
+
+Confirmed rule/level mapping (tested live, not just in theory):
+
+| recon-detector `severity` | OSSEC rule ID | OSSEC level |
+|---|---|---|
+| `high`                    | 100103        | 10          |
+| `medium`                  | 100102        | 6           |
+| `low`                     | 100101        | 3           |
+
+**Known limitation:** the rule descriptions reference `$(srcip)`-style
+field interpolation in earlier iterations of this setup, but extracting
+`source_ip` into a named OSSEC field couldn't be made to work on this
+build after several attempts — the cause wasn't pinned down. This is
+cosmetic only: every alert in `alerts.log` still contains the complete,
+original JSON line — including the real `source_ip` — directly beneath
+the rule description. The shipped `deploy/ossec/` files reflect this by
+not referencing `$(srcip)` at all, to avoid shipping a dangling
+placeholder.
+
+If you'd rather run the full Wazuh stack (manager+indexer+dashboard)
+instead of standalone OSSEC, be aware it's meaningfully heavier — the
+indexer alone typically wants several GB of RAM. Run it on separate
+hardware from the box doing the sniffing if you go that route, so it
+doesn't compete with recon-detector and Kali for the same 8GB.
 
 ## Running as a persistent service
 

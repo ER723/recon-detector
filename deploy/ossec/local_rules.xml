@@ -1,0 +1,48 @@
+<!--
+  recon-detector OSSEC rules.
+
+  Confirmed working on OSSEC HIDS 4.3.0 (local install) - live-tested
+  against real Nmap-triggered alerts via `ossec-logtest` and via the
+  running service, with both TCP_VERTICAL_SCAN (high) and
+  SLOW_TCP_VERTICAL_SCAN (medium) firing correctly at the levels below.
+
+  Install: append to /var/ossec/rules/local_rules.xml
+    sudo tee -a /var/ossec/rules/local_rules.xml < local_rules.xml
+
+  Requires local_decoder.xml (in this same folder) to also be installed,
+  and a <localfile> block in /var/ossec/etc/ossec.conf pointing at
+  recon-detector's recon_alerts.log, e.g.:
+
+    <localfile>
+      <log_format>syslog</log_format>
+      <location>/home/YOUR_USER/recon-detector/recon_alerts.log</location>
+    </localfile>
+
+  Restart with: sudo /var/ossec/bin/ossec-control restart
+-->
+<group name="recon-detector,">
+
+  <rule id="100100" level="0">
+    <decoded_as>recon-detector</decoded_as>
+    <description>recon-detector event</description>
+  </rule>
+
+  <rule id="100101" level="3">
+    <if_sid>100100</if_sid>
+    <match>"severity": "low"</match>
+    <description>recon-detector: low-severity recon activity</description>
+  </rule>
+
+  <rule id="100102" level="6">
+    <if_sid>100100</if_sid>
+    <match>"severity": "medium"</match>
+    <description>recon-detector: medium-severity recon activity</description>
+  </rule>
+
+  <rule id="100103" level="10">
+    <if_sid>100100</if_sid>
+    <match>"severity": "high"</match>
+    <description>recon-detector: high-severity recon activity</description>
+  </rule>
+
+</group>
