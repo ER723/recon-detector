@@ -273,6 +273,25 @@ sudo journalctl -u recon-detector -f
 - **`recon-detector.logrotate`** — rotates `recon_alerts.log` weekly, keeps
   8 weeks compressed, so the log can't grow unbounded.
 
+**OSSEC also needs its own boot persistence** — its installer sets up
+classic SysV init (`/etc/init.d/ossec` + `rc*.d` symlinks), which looked
+correctly registered but did not actually start OSSEC after a real reboot
+test on this system. `deploy/ossec/ossec.service` fixes that with a proper
+systemd unit instead, confirmed working via an actual reboot (not just
+`enable`d on paper):
+
+```bash
+sudo /var/ossec/bin/ossec-control stop   # if already running manually
+sudo cp deploy/ossec/ossec.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ossec
+sudo systemctl status ossec       # expect: active (exited) - correct for oneshot
+sudo /var/ossec/bin/ossec-control status   # expect: 4 daemons running
+```
+
+Both `recon-detector` and `ossec` were confirmed running with zero manual
+intervention after a cold `sudo reboot` on the Kali test VM.
+
 ## Running tests
 
 ```bash

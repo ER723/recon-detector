@@ -1,0 +1,38 @@
+# systemd unit for OSSEC HIDS persistence.
+#
+# Why this exists: OSSEC HIDS installed from source (install.sh, "local"
+# install type) registers itself via classic SysV init (/etc/init.d/ossec +
+# rc*.d symlinks). On a systemd-based distro (Kali/Debian) those symlinks
+# can be present and LOOK correctly registered, but on this system they did
+# not actually start OSSEC on boot - confirmed by an actual reboot test
+# showing all daemons "not running" despite the symlinks existing. This
+# unit fixes that by having systemd start OSSEC directly instead.
+#
+# Note the Type=oneshot + RemainAfterExit=yes: ossec-control launches
+# several independent background daemons and then exits itself, rather
+# than being one long-running foreground process - Type=forking (the more
+# "obvious" choice) does not track this correctly, since it expects a
+# single traceable PID. oneshot + RemainAfterExit is the correct fit and
+# is what was actually confirmed working via a real reboot.
+#
+# Install:
+#   sudo cp deploy/ossec/ossec.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ossec
+#
+# Verify:
+#   sudo systemctl status ossec
+#   sudo /var/ossec/bin/ossec-control status
+
+[Unit]
+Description=OSSEC HIDS
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/var/ossec/bin/ossec-control start
+ExecStop=/var/ossec/bin/ossec-control stop
+
+[Install]
+WantedBy=multi-user.target
