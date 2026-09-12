@@ -1,0 +1,35 @@
+# systemd unit for recon-detector.
+#
+# Install:
+#   sudo cp deploy/recon-detector.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now recon-detector
+#
+# Check status / logs:
+#   sudo systemctl status recon-detector
+#   sudo journalctl -u recon-detector -f
+#
+# Before enabling, edit WorkingDirectory/ExecStart below to match where you
+# cloned the repo, and set the correct network interface.
+
+[Unit]
+Description=recon-detector - lightweight network reconnaissance detector
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/recon-detector
+ExecStart=/usr/bin/python3 /opt/recon-detector/recon_detector.py --iface eth0 --config /opt/recon-detector/config.yaml
+Restart=on-failure
+RestartSec=5
+# Needs raw sockets to sniff traffic; run as root (or grant the interpreter
+# CAP_NET_RAW/CAP_NET_ADMIN via setcap if you'd rather not run as root).
+User=root
+
+# Light hardening - doesn't affect functionality, costs nothing.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/recon-detector
+
+[Install]
+WantedBy=multi-user.target

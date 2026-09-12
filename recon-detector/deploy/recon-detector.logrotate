@@ -1,0 +1,20 @@
+# logrotate config for recon-detector's alert log.
+#
+# Install:
+#   sudo cp deploy/recon-detector.logrotate /etc/logrotate.d/recon-detector
+#
+# Edit the path below if your alert log lives somewhere other than
+# /opt/recon-detector/recon_alerts.log (must match `log_file` in config.yaml).
+#
+# logrotate itself is already installed and run daily via cron on Kali/Debian,
+# so this adds no new service, dependency, or cost.
+
+/opt/recon-detector/recon_alerts.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

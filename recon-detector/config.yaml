@@ -1,0 +1,42 @@
+# recon-detector configuration
+# All fields are optional - anything you omit falls back to the built-in default.
+# Lower thresholds / shorter windows = more sensitive, more false positives.
+# Raise thresholds if you're getting noise from legit scanners (backup jobs,
+# monitoring tools, etc).
+
+port_scan:
+  window_seconds: 10             # fast-scan window (catches nmap -T3/-T4/-T5 style scans)
+  distinct_port_threshold: 15
+  long_window_seconds: 300       # slow-scan window: 5 minutes
+  long_window_threshold: 30      # catches nmap -T0/-T1 style scans that spread probes out
+                                  # to stay under the fast-window threshold
+
+udp_scan:
+  window_seconds: 10
+  distinct_port_threshold: 15
+  long_window_seconds: 300
+  long_window_threshold: 30
+
+ping_sweep:
+  window_seconds: 10
+  distinct_host_threshold: 10
+
+arp_scan:
+  window_seconds: 10
+  distinct_host_threshold: 10
+
+# How long (seconds) to wait before re-alerting on the same source + alert type,
+# so one scan doesn't spam thousands of log lines.
+alert_cooldown_seconds: 60
+
+log_file: recon_alerts.log
+
+# Production-readiness settings -------------------------------------------
+
+# Every this-many seconds: (1) write a [HEARTBEAT] log line so you can tell
+# "quiet network" apart from "the process died", and (2) run cleanup below.
+heartbeat_interval_seconds: 300
+
+# A source's tracked activity is dropped once it's been idle this long,
+# so memory stays flat on a box that runs for weeks instead of a demo.
+stale_after_seconds: 600
