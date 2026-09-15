@@ -131,6 +131,11 @@ nmap -sS -T1 -p 1-50 <ip-of-the-machine-running-recon-detector>
 
 You should see the matching alert type appear within the configured window.
 
+For how a Tier-1 analyst should actually triage and escalate what this
+produces, see [docs/escalation-process.md](docs/escalation-process.md) —
+written from this same live-tested pipeline, with real captured alerts
+walked through end to end.
+
 ### Live test results
 
 This was run for real: detector on a Kali VM (`--iface eth0`), scans launched
