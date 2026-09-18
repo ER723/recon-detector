@@ -1,5 +1,13 @@
 # recon-detector
 
+[![tests](https://github.com/ER723/recon-detector/actions/workflows/tests.yml/badge.svg)](https://github.com/ER723/recon-detector/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](pyproject.toml)
+[![RepoGrade](https://www.repo-grade.com/api/badge/er723/recon-detector)](https://www.repo-grade.com/report/er723/recon-detector)
+
+![Real alert output from a live Nmap test session](docs/images/live-alert-output.png)
+*Real output from an actual test run — see [Live test results](#live-test-results) below for the full session.*
+
 A free, lightweight network reconnaissance detector. Watches live traffic and
 raises an alert when it sees the noisy behaviors attackers generate while
 mapping a network before an attack:

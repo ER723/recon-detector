@@ -1,3 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "recon-detector"
+version = "1.0.0"
+description = "Free, lightweight network reconnaissance detector — flags port scans, ping sweeps, and ARP scans in real time using Python + Scapy."
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [
+    { name = "Anggasukmana Adisastra", email = "asukmana723@gmail.com" },
+]
+dependencies = [
+    "scapy~=2.7.0",
+    "pyyaml~=6.0.3",
+]
+
+[project.urls]
+Homepage = "https://github.com/ER723/recon-detector"
+Repository = "https://github.com/ER723/recon-detector"
+Issues = "https://github.com/ER723/recon-detector/issues"
+
+[tool.setuptools]
+py-modules = ["recon_detector"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --cov=recon_detector --cov-report=term-missing"

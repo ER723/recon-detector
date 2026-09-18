@@ -63,6 +63,43 @@ make check
    a new config option, a new deploy step).
 6. Open a PR using the provided template.
 
+### Example: adding a test for a new alert type
+
+If you add a new detection path, follow the existing test pattern in
+`tests/test_detector.py` — construct a `Detector` with overridden config,
+feed it synthetic timestamps, and assert on the alert it emits:
+
+```python
+def test_my_new_scan_type_triggers():
+    d = make_detector({"my_new_scan": {"distinct_threshold": 3, "window_seconds": 10}})
+    src = "10.0.0.9"
+    alerts = []
+    d._alert = lambda t, s, detail: alerts.append(t)
+
+    now = 20_000.0
+    for item in range(3):
+        d._check_scan(d.my_new_activity, src, item, d.cfg["my_new_scan"], src,
+                      "MY_NEW_SCAN", "SLOW_MY_NEW_SCAN", now, {"protocol": "TCP"})
+
+    assert "MY_NEW_SCAN" in alerts
+```
+
+This mirrors how `_check_scan` is already exercised for vertical and
+horizontal scans — reuse it rather than writing a new detection mechanism
+from scratch unless the new alert type genuinely needs different logic.
+
+### What happens after you open a PR
+
+CI runs `make check`'s three steps automatically (lint, type check, tests
+with coverage) — a PR with a red check won't be merged as-is. Beyond that,
+review is informal: since this is currently a solo-maintained project,
+expect a review comment or two asking what you tested and why, especially
+for anything touching detection thresholds or the OSSEC/systemd deployment
+config, where "it looks right" and "it works" have turned out to be
+different things more than once in this project's own history (see the
+README's live-test-results section for examples). Once CI is green and any
+review comments are addressed, it gets merged.
+
 ## Reporting bugs / requesting features
 
 Use the issue templates — they ask for the specific details (environment,
