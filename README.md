@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](pyproject.toml)
 [![RepoGrade](https://www.repo-grade.com/api/badge/er723/recon-detector)](https://www.repo-grade.com/report/er723/recon-detector)
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/ER723/recon-detector/badge)](https://securityscorecards.dev/viewer/?uri=github.com/ER723/recon-detector)
+[![OpenSSF Scorecard](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.scorecard.dev%2Fprojects%2Fgithub.com%2FER723%2Frecon-detector&query=%24.score&label=OpenSSF%20Scorecard&suffix=%2F10&color=informational)](https://scorecard.dev/viewer/?uri=github.com/ER723/recon-detector)
 
 ![Real alert output from a live Nmap test session](docs/images/live-alert-output.png)
 *Real output from an actual test run — see [Live test results](#live-test-results) below for the full session.*
