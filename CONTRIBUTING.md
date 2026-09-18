@@ -12,12 +12,13 @@ cd recon-detector
 make install
 ```
 
-`make install` installs the two runtime dependencies (`scapy`, `pyyaml`).
-For development you'll also want the tooling used in CI:
-
-```bash
-pip install pytest pytest-cov ruff mypy types-PyYAML --break-system-packages
-```
+`make install` installs everything you need - runtime deps (`scapy`,
+`pyyaml`) and dev/CI tooling (`pytest`, `ruff`, `mypy`, etc.) - all
+hash-verified against `requirements.txt`/`requirements-dev.txt` (the same
+files CI installs from, so what you run locally matches CI exactly). If
+you add or bump a dependency, edit `requirements.in` or
+`requirements-dev.in` and run `make lock` to regenerate the hash-pinned
+files.
 
 ## Code style
 

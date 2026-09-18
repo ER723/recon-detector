@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: pip install -r requirements.txt "pytest==9.1.1" "pytest-cov==7.1.0" "ruff==0.16.8" "mypy==2.3.1" "types-PyYAML==6.0.12.20260906"
+        run: pip install --require-hashes -r requirements.txt -r requirements-dev.txt
       - name: Lint (ruff)
         run: ruff check .
       - name: Type check (mypy)
