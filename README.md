@@ -300,10 +300,18 @@ intervention after a cold `sudo reboot` on the Kali test VM.
 ## Running tests
 
 ```bash
-python3 -m pytest tests/
-# or, without pytest:
-python3 tests/test_detector.py
+make check      # lint (ruff) + type check (mypy) + tests with coverage - same as CI
+make test        # just tests, with coverage
+make lint        # just ruff
+make typecheck   # just mypy
+
+# or directly, without make:
+python3 -m pytest
+python3 tests/test_detector.py   # without pytest
 ```
+
+CI runs `make check`'s three steps on every push. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the full development setup.
 
 ## Limitations (read before relying on this)
 

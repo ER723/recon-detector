@@ -43,14 +43,14 @@ Run `python3 recon_detector.py -h` for all options.
 
 import argparse
 import json
+import logging
 import sys
 import time
-import logging
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
 try:
-    from scapy.all import sniff, IP, TCP, UDP, ICMP, ARP
+    from scapy.all import ARP, ICMP, IP, TCP, UDP, sniff
 except ImportError:
     sys.exit(
         "scapy is required. Install it with:\n"
@@ -372,18 +372,23 @@ def main():
     logger = build_logger(cfg["log_file"], args.quiet)
     detector = Detector(cfg, logger)
 
+    def _scan_summary(key):
+        s = cfg[key]
+        return (f"{key}>={s['distinct_threshold']}/{s['window_seconds']}s "
+                f"or >={s['long_window_threshold']}/{s['long_window_seconds']}s")
+
+    parts = [
+        _scan_summary("tcp_vertical_scan"),
+        _scan_summary("udp_vertical_scan"),
+        _scan_summary("horizontal_scan"),
+        f"ping_sweep>={cfg['ping_sweep']['distinct_threshold']}/{cfg['ping_sweep']['window_seconds']}s",
+        f"arp_scan>={cfg['arp_scan']['distinct_threshold']}/{cfg['arp_scan']['window_seconds']}s",
+        f"heartbeat/cleanup every {cfg['heartbeat_interval_seconds']}s",
+        f"stale trackers dropped after {cfg['stale_after_seconds']}s idle",
+    ]
     logger.info(
-        f"{time.strftime('%Y-%m-%d %H:%M:%S')} recon-detector starting on iface={args.iface or 'default'} "
-        f"(tcp_vertical>={cfg['tcp_vertical_scan']['distinct_threshold']}/{cfg['tcp_vertical_scan']['window_seconds']}s "
-        f"or >={cfg['tcp_vertical_scan']['long_window_threshold']}/{cfg['tcp_vertical_scan']['long_window_seconds']}s, "
-        f"udp_vertical>={cfg['udp_vertical_scan']['distinct_threshold']}/{cfg['udp_vertical_scan']['window_seconds']}s "
-        f"or >={cfg['udp_vertical_scan']['long_window_threshold']}/{cfg['udp_vertical_scan']['long_window_seconds']}s, "
-        f"horizontal>={cfg['horizontal_scan']['distinct_threshold']}/{cfg['horizontal_scan']['window_seconds']}s "
-        f"or >={cfg['horizontal_scan']['long_window_threshold']}/{cfg['horizontal_scan']['long_window_seconds']}s, "
-        f"ping_sweep>={cfg['ping_sweep']['distinct_threshold']}/{cfg['ping_sweep']['window_seconds']}s, "
-        f"arp_scan>={cfg['arp_scan']['distinct_threshold']}/{cfg['arp_scan']['window_seconds']}s, "
-        f"heartbeat/cleanup every {cfg['heartbeat_interval_seconds']}s, "
-        f"stale trackers dropped after {cfg['stale_after_seconds']}s idle)"
+        f"{time.strftime('%Y-%m-%d %H:%M:%S')} recon-detector starting on "
+        f"iface={args.iface or 'default'} ({', '.join(parts)})"
     )
 
     # Sniff in fixed-length slices (via scapy's own `timeout`) instead of one

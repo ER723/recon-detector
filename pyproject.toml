@@ -1,0 +1,19 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=recon_detector --cov-report=term-missing"
+
+[tool.ruff]
+line-length = 110
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "RUF"]
+
+[tool.mypy]
+warn_unused_configs = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = "scapy.*"
+ignore_missing_imports = true
+follow_imports = "skip"

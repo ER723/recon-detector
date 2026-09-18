@@ -8,13 +8,13 @@ Detector class's packet-field access), so scapy must be installed.
 
 import json
 import logging
-import time
-import sys
 import os
+import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from recon_detector import Detector, SourceActivity, DEFAULTS  # noqa: E402
+from recon_detector import DEFAULTS, Detector, SourceActivity
 
 
 def make_detector(overrides=None):
@@ -44,7 +44,7 @@ def test_vertical_scan_triggers_on_many_ports_one_dest():
                       {"destination_ip": dst, "protocol": "TCP"})
 
     assert any(t == "TCP_VERTICAL_SCAN" for t, _ in alerts)
-    alert_type, detail = alerts[0]
+    _alert_type, detail = alerts[0]
     assert detail["destination_ip"] == dst
     assert detail["count"] == 5
 
@@ -70,7 +70,6 @@ def test_horizontal_scan_triggers_on_many_dests_not_vertical():
 
 
 def test_activity_expires_outside_window():
-    d = make_detector()
     act = SourceActivity()
     t0 = 1000.0
     act.add(("10.0.0.1", 22), t0, 10)

@@ -16,6 +16,15 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest
-      - name: Run tests
-        run: python -m pytest tests/ -v
+        run: pip install -r requirements.txt pytest pytest-cov ruff mypy types-PyYAML
+      - name: Lint (ruff)
+        run: ruff check .
+      - name: Type check (mypy)
+        run: mypy recon_detector.py
+      - name: Run tests with coverage
+        run: python -m pytest --cov=recon_detector --cov-report=term-missing --cov-report=xml
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: coverage.xml
