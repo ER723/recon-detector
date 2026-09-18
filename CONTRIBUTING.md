@@ -51,6 +51,29 @@ Run everything CI runs, in the same order, before pushing:
 make check
 ```
 
+## Fuzzing
+
+`fuzz/fuzz_config.py` fuzzes `load_config()`'s handling of arbitrary
+YAML content - it already found two real crash bugs (an unhandled
+`AttributeError` on non-mapping YAML, an unhandled `yaml.YAMLError` on
+malformed syntax) before a single fuzz run, just from thinking through
+what "arbitrary file content" could do to that function. Both are fixed
+and covered by regression tests; the harness exists to keep checking for
+the next one, and runs weekly + on any push touching
+`recon_detector.py`/`fuzz/` (see `.github/workflows/fuzz.yml`).
+
+Requires Python 3.12+ and Linux (see `requirements-fuzz.txt`'s header -
+`atheris` doesn't ship wheels for 3.11 or macOS/Windows).
+
+```bash
+make fuzz FLAGS="-max_total_time=60"   # bounded run
+make fuzz                               # runs until Ctrl+C
+```
+
+If you add a new function that parses external input (a new config
+option, a new alert field derived from packet data), consider adding a
+harness for it following the same pattern.
+
 ## Making a change
 
 1. Fork and branch from `main`.

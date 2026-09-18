@@ -123,7 +123,15 @@ def load_config(path):
         if not HAVE_YAML:
             sys.exit("pyyaml not installed; run: pip3 install pyyaml")
         with open(path) as f:
-            user_cfg = yaml.safe_load(f) or {}
+            try:
+                user_cfg = yaml.safe_load(f) or {}
+            except yaml.YAMLError as e:
+                sys.exit(f"Invalid config file '{path}': not valid YAML.\n{e}")
+        if not isinstance(user_cfg, dict):
+            sys.exit(
+                f"Invalid config file '{path}': top-level content must be a "
+                f"YAML mapping (key: value pairs), got {type(user_cfg).__name__}."
+            )
         for section, values in user_cfg.items():
             if isinstance(values, dict) and section in cfg:
                 cfg[section].update(values)

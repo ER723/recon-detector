@@ -1,4 +1,4 @@
-.PHONY: install test lint typecheck check lock
+.PHONY: install test lint typecheck check lock fuzz
 
 install:
 	pip install --require-hashes -r requirements.txt -r requirements-dev.txt --break-system-packages
@@ -15,6 +15,13 @@ lock:
 	  echo "# as requirements.txt. Generated from requirements-dev.in - do not hand-edit."; \
 	  echo "# Regenerate with: make lock"; \
 	  uv pip compile requirements-dev.in --generate-hashes --python-version 3.11 --no-header; } > requirements-dev.txt
+	{ echo "# Hash-pinned fuzzing dependency. Requires Python 3.12+ (atheris has no"; \
+	  echo "# wheels for 3.11 or earlier) and Linux (no Windows/macOS wheels) - see"; \
+	  echo "# https://github.com/google/atheris#supported-platforms. Not needed for"; \
+	  echo "# normal install/dev - only for running fuzz/fuzz_config.py."; \
+	  echo "# Generated from requirements-fuzz.in - do not hand-edit."; \
+	  echo "# Regenerate with: make lock"; \
+	  uv pip compile requirements-fuzz.in --generate-hashes --python-version 3.12 --no-header; } > requirements-fuzz.txt
 
 test:
 	python3 -m pytest
@@ -27,3 +34,10 @@ typecheck:
 
 # Runs everything CI runs, in the same order, so you can check before pushing.
 check: lint typecheck test
+
+# Requires requirements-fuzz.txt (Python 3.12+, Linux only - see that file's
+# header). Runs until Ctrl+C; pass e.g. `-max_total_time=60` via FLAGS for a
+# bounded run: make fuzz FLAGS="-max_total_time=60"
+fuzz:
+	pip install --require-hashes -r requirements-fuzz.txt --break-system-packages
+	python3 fuzz/fuzz_config.py $(FLAGS)

@@ -12,9 +12,11 @@ import os
 import sys
 import time
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from recon_detector import DEFAULTS, Detector, SourceActivity
+from recon_detector import DEFAULTS, Detector, SourceActivity, load_config
 
 
 def make_detector(overrides=None):
@@ -166,6 +168,31 @@ def test_heartbeat_logs_active_tracker_count():
     assert "2 active" in lines[0]
 
 
+def test_load_config_rejects_non_mapping_yaml_cleanly():
+    """A config file whose top-level content isn't a mapping (a plain
+    string, list, or number - e.g. a corrupted file or a typo pointing
+    at the wrong file), or that isn't valid YAML at all, must fail with
+    a clear, handled error, not an unhandled exception. Found via
+    fuzzing prep, not by inspection - see fuzz/fuzz_config.py."""
+    import tempfile
+
+    bad_inputs = (
+        "just a string",
+        "- a\n- list\n",
+        "42",
+        "key: [unclosed bracket\n  nested: :bad:\n",  # malformed YAML syntax
+    )
+    for content in bad_inputs:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(content)
+            path = f.name
+        try:
+            with pytest.raises(SystemExit):
+                load_config(path)
+        finally:
+            os.unlink(path)
+
+
 if __name__ == "__main__":
     test_vertical_scan_triggers_on_many_ports_one_dest()
     test_horizontal_scan_triggers_on_many_dests_not_vertical()
@@ -175,4 +202,5 @@ if __name__ == "__main__":
     test_alert_emits_valid_json_with_expected_fields()
     test_cleanup_prunes_stale_sources_but_keeps_active_ones()
     test_heartbeat_logs_active_tracker_count()
+    test_load_config_rejects_non_mapping_yaml_cleanly()
     print("All tests passed.")

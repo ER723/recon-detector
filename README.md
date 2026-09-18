@@ -319,8 +319,11 @@ python3 -m pytest
 python3 tests/test_detector.py   # without pytest
 ```
 
-CI runs `make check`'s three steps on every push. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the full development setup.
+CI runs `make check`'s three steps on every push. There's also a fuzz
+harness (`fuzz/fuzz_config.py`, Python 3.12+/Linux only) that found two
+real crash bugs in config-file handling before a single run - see
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to run it and the full
+development setup.
 
 ## Limitations (read before relying on this)
 

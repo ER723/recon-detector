@@ -1,0 +1,29 @@
+name: fuzz
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "recon_detector.py"
+      - "fuzz/**"
+      - "requirements-fuzz.*"
+  schedule:
+    - cron: '0 5 * * 0'  # weekly, Sundays
+
+permissions: read-all
+
+jobs:
+  fuzz-config:
+    name: Fuzz load_config()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"  # atheris has no wheels for 3.11 or earlier
+      - name: Install dependencies
+        run: pip install --require-hashes -r requirements.txt -r requirements-fuzz.txt
+      - name: Run fuzzer (bounded time)
+        run: python3 fuzz/fuzz_config.py -max_total_time=120 -close_fd_mask=3
