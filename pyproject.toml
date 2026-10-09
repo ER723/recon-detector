@@ -13,7 +13,7 @@ authors = [
     { name = "Anggasukmana Adisastra", email = "asukmana723@gmail.com" },
 ]
 dependencies = [
-    "scapy~=2.7.0",
+    "scapy>=2.7,<2.9",
     "pyyaml~=6.0.3",
 ]
 
